@@ -1,2 +1,5 @@
 venv/
+images/
+metadatas/
+slices/
 *.mp4

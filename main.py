@@ -30,7 +30,7 @@ def delete_file(file_path):
         os.remove(file_path)
 
 
-def run_command(command, stderr_logging=True, wait_for_completion=False):
+def run_command(command, wait_for_completion=False):
     """Run a shell command with subprocess and handle the output."""
     try:
         if wait_for_completion:
@@ -42,10 +42,7 @@ def run_command(command, stderr_logging=True, wait_for_completion=False):
             result = subprocess.run(command, shell=True, text=True, capture_output=True)
             
         if result.returncode == 0:
-            if stderr_logging:
-                logging.info(f"Command {command} executed: {result.stderr}")
-            else:
-                logging.info(f"Command {command} executed: {result.stdout}")
+            logging.info(f"Command {command} executed: {result.stderr}")
             return result
         else:
             logging.error(f"Command failed: {command}\nError: {result.stderr}")
@@ -69,9 +66,9 @@ def extract_metadata(input_folder, output_folder, threshold=0.0025):
         json_file_name = os.path.basename(video_path)[:-4] + '_data.json' 
         metadata_path = os.path.join(output_folder, json_file_name).replace('\\', '/')
         command = f"ffprobe -f lavfi -i \"movie='{video_path}',select='gt(scene,{threshold})',metadata=print\" " \
-                  f"-show_entries frame=pts,pts_time:frame_tags=lavfi.scene_score " \
+                  f"-show_entries frame=pts_time " \
                   f"-of json > {metadata_path}"
-        run_command(command, stderr_logging=False)
+        run_command(command)
         file_info_list.append({"video_path": video_path, "metadata_path": metadata_path})
     return file_info_list
 
@@ -86,21 +83,20 @@ def process_timestamps(file_info_list, images_dir='images/', debug=False):
 
     for file_info in file_info_list:
         data = load_json_data(file_info['metadata_path'])
-        timestamps = [frame['pts_time'] for frame in data['frames'] if 'lavfi.scene_score' in frame['tags']]
+        timestamps = [frame['pts_time'] for frame in data['frames']]
         batch_size = 250
         for i in range(0, len(timestamps), batch_size):
             batch_timestamps = timestamps[i:i+batch_size]
-            tolerance = 0.0001
+            tolerance = 0.00015
             select_filter = '+'.join([f'between(t,{float(ts)-tolerance},{float(ts)+tolerance})' for ts in batch_timestamps])
             
             if debug:
                 command = f"ffmpeg -i {file_info['video_path']} -vf \"showinfo\" -f null -"
             else:
-                command = f"ffmpeg -v verbose -i {file_info['video_path']} -vf \"showinfo,select='{select_filter}'\" -start_number {total_frames} -vsync vfr {images_dir}/frame_%d.png"
+                command = f"ffmpeg -i {file_info['video_path']} -vf \"select='{select_filter}'\" -start_number {total_frames} -vsync vfr -q:v 16 {images_dir}/frame_%d.jpg"
                 total_frames += len(batch_timestamps)
             
             run_command(command, wait_for_completion=True)
-            time.sleep(5)
 
     logging.info('Images created based on timestamps')
 
@@ -118,13 +114,13 @@ def load_json_data(file_path):
 def create_video(source_folder, output_file="out.mp4"):
     """Create a video from images located in a specified folder."""
     delete_file(output_file)
-    command = f"ffmpeg -framerate 30 -i {source_folder}frame_%d.png -c:v libx264 -r 30 -pix_fmt yuv420p {output_file}"
+    command = f"ffmpeg -framerate 30 -i {source_folder}frame_%d.jpg -c:v libx264 -r 30 -pix_fmt yuv420p {output_file}"
     run_command(command, wait_for_completion=True)
     logging.info("Video is created.")
 
 def main():
     setup_logging()
-    input_name = "input.mp4"
+    input_name = "test_long.mp4"
     slice_video(input_name)
     file_info_list = extract_metadata('slices/', 'metadatas/')
     process_timestamps(file_info_list, debug=False)
