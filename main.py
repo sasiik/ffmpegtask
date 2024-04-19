@@ -1,9 +1,9 @@
+import re
 import subprocess
 import json
 import os
 import shutil
 import logging
-import time
 
 def setup_logging():
     logging.basicConfig(level=logging.DEBUG, 
@@ -13,6 +13,18 @@ def setup_logging():
                             logging.FileHandler("logfile.log"),  
                             logging.StreamHandler()  
                         ])
+    
+def rename_images(directory):
+    files = sorted(os.listdir(directory), key=natural_sort_key)
+    i = 0  # Start numbering from 1
+    for file in files:
+        if file.endswith(".jpg"):
+            if not os.path.exists(os.path.join(directory, f"frame_renamed_{i}.jpg")):
+                os.rename(
+                    os.path.join(directory, file),
+                    os.path.join(directory, f"frame_renamed_{i}.jpg")
+                )
+                i += 1
 
 def clear_directory(folder):
     """Remove all files and directories in the specified folder and recreate it."""
@@ -29,33 +41,22 @@ def delete_file(file_path):
     if os.path.exists(file_path):
         os.remove(file_path)
 
+def run_command(command, wait_for_completion=True):
+    """Execute a system command and optionally wait for it to complete."""
+    if wait_for_completion:
+        result = subprocess.run(command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        logging.info(f"Command:{command}, Result:{result.stderr}")
+        print(result.stderr)
+    else:
+        process = subprocess.Popen(command, shell=True)
+        return process
 
-def run_command(command, wait_for_completion=False):
-    """Run a shell command with subprocess and handle the output."""
-    try:
-        if wait_for_completion:
-            result = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-            stdout, stderr = result.communicate()
-            result.stdout = stdout
-            result.stderr = stderr
-        else:
-            result = subprocess.run(command, shell=True, text=True, capture_output=True)
-            
-        if result.returncode == 0:
-            logging.info(f"Command {command} executed: {result.stderr}")
-            return result
-        else:
-            logging.error(f"Command failed: {command}\nError: {result.stderr}")
-            raise subprocess.CalledProcessError(result.returncode, command, result.stderr)
-    except Exception as e:
-        logging.error(f"Failed to run command: {str(e)}")
-        raise
 
 def slice_video(input_name, segment_length=20, output_folder='slices/'):
     """Slice the input video into segments of specified length and save to output folder."""
     clear_directory(output_folder)
     command = f"ffmpeg -i {input_name} -reset_timestamps 1 -c copy -map 0 -segment_time {segment_length} -f segment {output_folder}output_%d.mp4"
-    run_command(command, wait_for_completion=True)
+    run_command(command)
 
 def extract_metadata(input_folder, output_folder, threshold=0.0025):
     """Extract metadata from video segments and save as JSON files."""
@@ -72,9 +73,15 @@ def extract_metadata(input_folder, output_folder, threshold=0.0025):
         file_info_list.append({"video_path": video_path, "metadata_path": metadata_path})
     return file_info_list
 
+def natural_sort_key(s, _nsre=re.compile('([0-9]+)')):
+    return [int(text) if text.isdigit() else text.lower() for text in re.split(_nsre, s)]
+
 def get_segment_files(input_folder):
-    """Return a list of video segment file paths from the specified input folder."""
-    return [os.path.join(input_folder, f) for f in os.listdir(input_folder)]
+    # This assumes all video files in the directory are relevant
+    return sorted(
+        [os.path.join(input_folder, f) for f in os.listdir(input_folder)],
+        key=natural_sort_key
+    )
 
 def process_timestamps(file_info_list, images_dir='images/', debug=False):
     """Process timestamps extracted from metadata files to generate images."""
@@ -84,7 +91,7 @@ def process_timestamps(file_info_list, images_dir='images/', debug=False):
     for file_info in file_info_list:
         data = load_json_data(file_info['metadata_path'])
         timestamps = [frame['pts_time'] for frame in data['frames']]
-        batch_size = 250
+        batch_size = 200
         for i in range(0, len(timestamps), batch_size):
             batch_timestamps = timestamps[i:i+batch_size]
             tolerance = 0.00015
@@ -95,8 +102,8 @@ def process_timestamps(file_info_list, images_dir='images/', debug=False):
             else:
                 command = f"ffmpeg -i {file_info['video_path']} -vf \"select='{select_filter}'\" -start_number {total_frames} -vsync vfr -q:v 16 {images_dir}/frame_%d.jpg"
                 total_frames += len(batch_timestamps)
-            
-            run_command(command, wait_for_completion=True)
+            logging.info(f"Starting frame number for this batch: {total_frames}")
+            run_command(command)
 
     logging.info('Images created based on timestamps')
 
@@ -112,15 +119,16 @@ def load_json_data(file_path):
         raise
 
 def create_video(source_folder, output_file="out.mp4"):
+    rename_images('images/')
     """Create a video from images located in a specified folder."""
     delete_file(output_file)
-    command = f"ffmpeg -framerate 30 -i {source_folder}frame_%d.jpg -c:v libx264 -r 30 -pix_fmt yuv420p {output_file}"
-    run_command(command, wait_for_completion=True)
+    command = f"ffmpeg -framerate 30 -i {source_folder}frame_renamed_%d.jpg -c:v libx264 -r 30 -pix_fmt yuv420p {output_file}"
+    run_command(command)
     logging.info("Video is created.")
 
 def main():
     setup_logging()
-    input_name = "test_long.mp4"
+    input_name = "input.mp4"
     slice_video(input_name)
     file_info_list = extract_metadata('slices/', 'metadatas/')
     process_timestamps(file_info_list, debug=False)
