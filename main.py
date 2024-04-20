@@ -177,7 +177,7 @@ def main():
     
     # Add arguments
     parser.add_argument('-i', '--input', type=str, help='Path to the input file')
-    parser.add_argument('-t', '--threshold', type=int, default=0.002, help='Increase/decrease sensitivity of the algoritm')
+    parser.add_argument('-t', '--threshold', type=float, default=0.002, help='Increase/decrease sensitivity of the algoritm')
     parser.add_argument('-q', '--quality', type=int, default=16, help='Quailty of the video (number from 2 to 31)')
     parser.add_argument('--logfile', action='store_true', help='Creates a logfile in the script folder')
     parser.add_argument('-sl', '--segment_length', type=int, default=20, help='Length of each slice of the video (in sec)')
