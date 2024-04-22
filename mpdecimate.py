@@ -4,7 +4,7 @@ import argparse
 import sys
 
 
-def process_video(input_file, output_file,is_interpolate,fps):
+def process_video(input_file, output_file,is_interpolate,video_fps):
     """
     Process the given video to remove redundant frames using ffmpeg's mpdecimate filter.
     
@@ -13,13 +13,13 @@ def process_video(input_file, output_file,is_interpolate,fps):
     output_file (str): Path to the output video file.
     """
     if is_interpolate:
-        exec = f"mpdecimate,setpts=N/FRAME_RATE/TB,minterpolate='mi_mode=mci:mc_mode=aobmc:vsbmc=1:fps={fps}'"
+        video_filter = f"mpdecimate,setpts=N/FRAME_RATE/TB,minterpolate='mi_mode=mci:mc_mode=aobmc:vsbmc=1:fps={video_fps}'"
     else:
-        exec = "mpdecimate,setpts=N/FRAME_RATE/TB"
+        video_filter = "mpdecimate,setpts=N/FRAME_RATE/TB"
     command = [
         'ffmpeg',
         '-i', input_file,
-        '-vf', exec,
+        '-vf', video_filter,
         '-an',  
         output_file
     ]
